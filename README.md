@@ -13,5 +13,5 @@ We have four datasets for training and testing. The first one is the randomly ge
 We have tested four networks, with and without the GAN structure, namely convolutional neural network(CNN), densenet, squeezenet and wide resnet(WRN). All can be found in the respective folders. The CNN structure is based on the method in a paper proposed by Dr Horisaki. All other networks and their authors can be found in the python files.
 
 ## Authors
-[Youjing YU](https://github.com/YoujingYu99)
+[Youjing YU](https://github.com/YoujingYu99),
 Yuyi ZHANG
