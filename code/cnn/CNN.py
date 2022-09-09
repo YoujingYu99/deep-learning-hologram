@@ -1,5 +1,5 @@
-# wide ResNet
 # code from https://www.tensorflow.org/tutorials/generative/pix2pix
+# do the image generation with CNN network only
 import tensorflow as tf
 
 import os
@@ -8,19 +8,19 @@ import time
 from matplotlib import pyplot as plt
 from IPython import display
 
-_URL = "https://people.eecs.berkeley.edu/~tinghuiz/projects/pix2pix/datasets/facades.tar.gz"
+import tensorflow as tf
 
-path_to_zip = tf.keras.utils.get_file("facades.tar.gz", origin=_URL, extract=True)
+PATH = "../coco/"
 
-PATH = os.path.join(os.path.dirname(path_to_zip), "facades/")
 
 BUFFER_SIZE = 400
-BATCH_SIZE = 1
+BATCH_SIZE = 10
 IMG_WIDTH = 256
 IMG_HEIGHT = 256
 N = 256  # size of training images 64*64
 K = 32  # number of filters at convolutional layer
-k = 12
+REGULARIZE_RATIO = 0.1
+DROP_OUT = 0.2
 
 
 def load(image_file):
@@ -39,8 +39,7 @@ def load(image_file):
     return input_image, real_image
 
 
-inp, re = load(PATH + "train/100.jpg")
-
+inp, re = load(PATH + "coco_train/000000000776 resizedconcat.jpg")
 
 # casting to int for matplotlib to show the image
 # plt.figure()
@@ -106,7 +105,7 @@ def random_jitter(input_image, real_image):
 
 def load_image_train(image_file):
     input_image, real_image = load(image_file)
-    input_image, real_image = random_jitter(input_image, real_image)
+    # input_image, real_image = random_jitter(input_image, real_image)
     input_image, real_image = normalize(input_image, real_image)
 
     return input_image, real_image
@@ -120,21 +119,22 @@ def load_image_test(image_file):
     return input_image, real_image
 
 
-train_dataset = tf.data.Dataset.list_files(PATH + "train/*.jpg")
+train_dataset = tf.data.Dataset.list_files(PATH + "coco_train/*.jpg")
 train_dataset = train_dataset.map(
     load_image_train, num_parallel_calls=tf.data.experimental.AUTOTUNE
 )
 train_dataset = train_dataset.shuffle(BUFFER_SIZE)
 train_dataset = train_dataset.batch(BATCH_SIZE)
 
-test_dataset = tf.data.Dataset.list_files(PATH + "test/*.jpg")
+test_dataset = tf.data.Dataset.list_files(PATH + "coco_test/*.jpg")
 test_dataset = test_dataset.map(load_image_test)
 test_dataset = test_dataset.batch(BATCH_SIZE)
 
 OUTPUT_CHANNELS = 3
 
 
-def downsample(filters=K * k, size=3, input_shape=[], apply_batchnorm=True):
+def downsample(filters=K, size=3, input_shape=[], apply_batchnorm=True):
+
     result = tf.keras.Sequential()
     result.add(tf.keras.layers.BatchNormalization())
     result.add(tf.keras.layers.ReLU())
@@ -147,6 +147,7 @@ def downsample(filters=K * k, size=3, input_shape=[], apply_batchnorm=True):
             padding="same",
             kernel_initializer=initializer,
             use_bias=False,
+            kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
         )
     )
 
@@ -160,6 +161,7 @@ def downsample(filters=K * k, size=3, input_shape=[], apply_batchnorm=True):
             padding="same",
             kernel_initializer=initializer,
             use_bias=False,
+            kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
         )
     )
 
@@ -170,6 +172,7 @@ def downsample(filters=K * k, size=3, input_shape=[], apply_batchnorm=True):
         padding="same",
         kernel_initializer=initializer,
         use_bias=False,
+        kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
     )
     inputs = tf.keras.layers.Input(input_shape)
     x = inputs
@@ -180,12 +183,12 @@ def downsample(filters=K * k, size=3, input_shape=[], apply_batchnorm=True):
     return tf.keras.Model(inputs=inputs, outputs=x + y)
 
 
-# down_model = downsample(filters=3, size=3, input_shape=[256, 256, 3])
+# down_model = downsample(filters=3, size=3, input_shape=[256,256,1])
 # down_result = down_model(tf.expand_dims(inp, 0))
-# print(down_result.shape)
+# print (down_result.shape)
 
 
-def upsample(filters=K * k, size=2, input_shape=[], apply_dropout=False):
+def upsample(filters=K, size=2, input_shape=[], apply_dropout=False):
     initializer = tf.random_normal_initializer(0.0, 0.02)
 
     result = tf.keras.Sequential()
@@ -199,6 +202,7 @@ def upsample(filters=K * k, size=2, input_shape=[], apply_dropout=False):
             padding="same",
             kernel_initializer=initializer,
             use_bias=False,
+            kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
         )
     )
 
@@ -216,6 +220,7 @@ def upsample(filters=K * k, size=2, input_shape=[], apply_dropout=False):
             padding="same",
             kernel_initializer=initializer,
             use_bias=False,
+            kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
         )
     )
 
@@ -226,6 +231,7 @@ def upsample(filters=K * k, size=2, input_shape=[], apply_dropout=False):
         padding="same",
         kernel_initializer=initializer,
         use_bias=False,
+        kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
     )
 
     inputs = tf.keras.layers.Input(input_shape)
@@ -240,13 +246,13 @@ def upsample(filters=K * k, size=2, input_shape=[], apply_dropout=False):
     return tf.keras.Model(inputs=inputs, outputs=x + y)
 
 
-# up_model = upsample(filters=3, size=4, input_shape=[256, 256, 3])
+# up_model = upsample(filters=3, size=4, input_shape=[256,256,1])
 # up_result = up_model(down_result)
-# print(up_result.shape)
+# print (up_result.shape)
 
 
 def Generator():
-    inputs = tf.keras.layers.Input(shape=[256, 256, 3])
+    inputs = tf.keras.layers.Input(shape=[256, 256, 1])
 
     # build the main network body
     n = N
@@ -254,18 +260,14 @@ def Generator():
     up_stack = []
     while n != 1:
         if n == N:
-            down_stack.append(downsample(filters=K * k, input_shape=[n, n, 3]))
+            down_stack.append(downsample(input_shape=[n, n, 1]))
         else:
-            down_stack.append(downsample(input_shape=[n, n, K * k]))
+            down_stack.append(downsample(input_shape=[n, n, K]))
 
         if n / 2 == 1:
-            up_stack.append(upsample(input_shape=[int(n / 2), int(n / 2), K * k]))
-        elif n / 2 == 128:
-            up_stack.append(
-                upsample(input_shape=[int(n / 2), int(n / 2), 2 * K * k], filters=K)
-            )
+            up_stack.append(upsample(input_shape=[int(n / 2), int(n / 2), K]))
         else:
-            up_stack.append(upsample(input_shape=[int(n / 2), int(n / 2), 2 * k * K]))
+            up_stack.append(upsample(input_shape=[int(n / 2), int(n / 2), 2 * K]))
 
         n = int(n / 2)
 
@@ -277,65 +279,46 @@ def Generator():
     #                                        padding='same',
     #                                        kernel_initializer=initializer,
     #                                        activation='tanh') # (bs, 256, 256, 3)
-    # up_stack.append(upsample(input_shape=[128,128,384]))
-    # up_stack.append(tf.keras.layers.BatchNormalization())
-    # up_stack.append(tf.keras.layers.ReLU())
-    # up_stack.append(tf.keras.layers.Conv2D(K, 1, strides=1, padding='same',
-    #                                       kernel_initializer=initializer, use_bias=False))
 
     # skip block
     skipsample = tf.keras.Sequential()
     skipsample.add(
         tf.keras.layers.Conv2D(
-            K * k,
+            K,
             3,
             strides=1,
             padding="same",
             kernel_initializer=initializer,
             use_bias=False,
+            kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
         )
     )
     skipsample.add(tf.keras.layers.BatchNormalization())
     skipsample.add(tf.keras.layers.ReLU())
     skipsample.add(
         tf.keras.layers.Conv2D(
-            K * k,
+            K,
             3,
             strides=1,
             padding="same",
             kernel_initializer=initializer,
             use_bias=False,
+            kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
         )
     )
     skipsample.add(tf.keras.layers.BatchNormalization())
     skipsample.add(tf.keras.layers.ReLU())
 
     # last skip block
-    lastskipsample = tf.keras.Sequential()
-    lastskipsample.add(
-        tf.keras.layers.Conv2D(
-            K,
-            3,
-            strides=1,
-            padding="same",
-            kernel_initializer=initializer,
-            use_bias=False,
-        )
-    )
-    lastskipsample.add(tf.keras.layers.BatchNormalization())
-    lastskipsample.add(tf.keras.layers.ReLU())
-    lastskipsample.add(
-        tf.keras.layers.Conv2D(
-            K,
-            3,
-            strides=1,
-            padding="same",
-            kernel_initializer=initializer,
-            use_bias=False,
-        )
-    )
-    lastskipsample.add(tf.keras.layers.BatchNormalization())
-    lastskipsample.add(tf.keras.layers.ReLU())
+    # lastskipsample = tf.keras.Sequential()
+    # lastskipsample.add(tf.keras.layers.Conv2D(K, 3, strides=1, padding='same',
+    #                                 kernel_initializer=initializer, use_bias=False))
+    # lastskipsample.add(tf.keras.layers.BatchNormalization())
+    # lastskipsample.add(tf.keras.layers.ReLU())
+    # lastskipsample.add(tf.keras.layers.Conv2D(K, 3, strides=1, padding='same',
+    #                                 kernel_initializer=initializer, use_bias=False))
+    # lastskipsample.add(tf.keras.layers.BatchNormalization())
+    # lastskipsample.add(tf.keras.layers.ReLU())
 
     x = inputs
 
@@ -358,15 +341,10 @@ def Generator():
     for up, skip in zip(up_stack[0 : len(up_stack) - 1], skips[0 : len(skips) - 1]):
         x = up(x)
         print(x.shape)
-        # print(skipsample(skip).shape)
-        if x.shape.as_list()[1] == 256:
-            pass
-        else:
-            x = tf.keras.layers.Concatenate()([x, skipsample(skip)])
-        # if skip.shape==(256,256,3):
-        #     x = tf.keras.layers.Concatenate()([x, lastskipsample(skip)])
-        # else:
-        #     x = tf.keras.layers.Concatenate()([x, skipsample(skip)])
+        print(skipsample(skip).shape)
+        # if x.get_shape.as_list()[1] == 256:
+        #     pass
+        x = tf.keras.layers.Concatenate()([x, skipsample(skip)])
 
     x = up_stack[len(up_stack) - 1](x)
     # x = tf.keras.layers.Concatenate()([x, lastskipsample(skips[len(skips)-1])])
@@ -377,12 +355,13 @@ def Generator():
     R.add(tf.keras.layers.ReLU())
     R.add(
         tf.keras.layers.Conv2D(
-            K * k,
+            K,
             3,
             strides=1,
             padding="same",
             kernel_initializer=initializer,
             use_bias=False,
+            kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
         )
     )
     R.add(tf.keras.layers.BatchNormalization())
@@ -395,6 +374,7 @@ def Generator():
             padding="same",
             kernel_initializer=initializer,
             use_bias=False,
+            kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
         )
     )
 
@@ -403,7 +383,13 @@ def Generator():
     outputs = x + y
 
     last = tf.keras.layers.Conv2D(
-        3, 3, strides=1, padding="same", kernel_initializer=initializer, use_bias=False
+        1,
+        3,
+        strides=1,
+        padding="same",
+        kernel_initializer=initializer,
+        use_bias=False,
+        kernel_regularizer=tf.keras.regularizers.L2(REGULARIZE_RATIO),
     )
 
     outputs = last(outputs)
@@ -412,103 +398,11 @@ def Generator():
 
 
 generator = Generator()
-tf.keras.utils.plot_model(generator, show_shapes=True, dpi=64)
 
-gen_output = generator(inp[tf.newaxis, ...], training=False)
-plt.imshow(gen_output[0, ...])
-
-LAMBDA = 100
-
-
-def generator_loss(disc_generated_output, gen_output, target):
-    gan_loss = loss_object(tf.ones_like(disc_generated_output), disc_generated_output)
-
-    # mean absolute error
-    l1_loss = tf.reduce_mean(tf.abs(target - gen_output))
-
-    total_gen_loss = gan_loss + (LAMBDA * l1_loss)
-
-    return total_gen_loss, gan_loss, l1_loss
-
-
-def Discriminator():
-    initializer = tf.random_normal_initializer(0.0, 0.02)
-
-    inp = tf.keras.layers.Input(shape=[256, 256, 3], name="input_image")
-    tar = tf.keras.layers.Input(shape=[256, 256, 3], name="target_image")
-
-    x = tf.keras.layers.concatenate([inp, tar])  # (bs, 256, 256, channels*2)
-
-    down1 = downsample(
-        filters=64, size=4, input_shape=[256, 256, 6], apply_batchnorm=False
-    )(
-        x
-    )  # (bs, 128, 128, 64)
-
-    down2 = downsample(
-        filters=64, size=4, input_shape=[128, 128, 64], apply_batchnorm=False
-    )(
-        down1
-    )  # (bs, 64, 64, 128)
-    down3 = downsample(
-        filters=64, size=4, input_shape=[64, 64, 64], apply_batchnorm=False
-    )(
-        down2
-    )  # (bs, 32, 32, 256)
-
-    zero_pad1 = tf.keras.layers.ZeroPadding2D()(down3)  # (bs, 34, 34, 256)
-    conv = tf.keras.layers.Conv2D(
-        512, 4, strides=1, kernel_initializer=initializer, use_bias=False
-    )(
-        zero_pad1
-    )  # (bs, 31, 31, 512)
-
-    batchnorm1 = tf.keras.layers.BatchNormalization()(conv)
-
-    leaky_relu = tf.keras.layers.LeakyReLU()(batchnorm1)
-
-    zero_pad2 = tf.keras.layers.ZeroPadding2D()(leaky_relu)  # (bs, 33, 33, 512)
-
-    last = tf.keras.layers.Conv2D(1, 4, strides=1, kernel_initializer=initializer)(
-        zero_pad2
-    )  # (bs, 30, 30, 1)
-
-    return tf.keras.Model(inputs=[inp, tar], outputs=last)
-
-
-discriminator = Discriminator()
-tf.keras.utils.plot_model(discriminator, show_shapes=True, dpi=64)
-
-disc_out = discriminator([inp[tf.newaxis, ...], gen_output], training=False)
-plt.imshow(disc_out[0, ..., -1], vmin=-20, vmax=20, cmap="RdBu_r")
-plt.colorbar()
-
-loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-
-
-def discriminator_loss(disc_real_output, disc_generated_output):
-    real_loss = loss_object(tf.ones_like(disc_real_output), disc_real_output)
-
-    generated_loss = loss_object(
-        tf.zeros_like(disc_generated_output), disc_generated_output
-    )
-
-    total_disc_loss = real_loss + generated_loss
-
-    return total_disc_loss
-
-
-generator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
-discriminator_optimizer = tf.keras.optimizers.Adam(2e-4, beta_1=0.5)
-
-checkpoint_dir = "./piao5_training_checkpoints"
-checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-checkpoint = tf.train.Checkpoint(
-    generator_optimizer=generator_optimizer,
-    discriminator_optimizer=discriminator_optimizer,
-    generator=generator,
-    discriminator=discriminator,
+generator.compile(
+    optimizer="adam", loss=tf.keras.losses.MeanSquaredError(), metrics=["mse"]
 )
+history = generator.fit(train_dataset, epochs=10, validation_data=test_dataset)
 
 
 def generate_images(model, test_input, tar):
@@ -521,89 +415,14 @@ def generate_images(model, test_input, tar):
     for i in range(3):
         plt.subplot(1, 3, i + 1)
         plt.title(title[i])
+        plt.gray()
         # getting the pixel values between [0, 1] to plot it.
-        plt.imshow(display_list[i] * 0.5 + 0.5)
+        img = tf.squeeze(display_list[i]) * 0.5 + 0.5
+        plt.imshow(img)
+
         plt.axis("off")
     plt.show()
 
 
 for example_input, example_target in test_dataset.take(1):
     generate_images(generator, example_input, example_target)
-
-EPOCHS = 3
-
-import datetime
-
-log_dir = "../logs/"
-
-summary_writer = tf.summary.create_file_writer(
-    log_dir + "fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-)
-
-
-@tf.function
-def train_step(input_image, target, epoch):
-    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        gen_output = generator(input_image, training=True)
-
-        disc_real_output = discriminator([input_image, target], training=True)
-        disc_generated_output = discriminator([input_image, gen_output], training=True)
-
-        gen_total_loss, gen_gan_loss, gen_l1_loss = generator_loss(
-            disc_generated_output, gen_output, target
-        )
-        disc_loss = discriminator_loss(disc_real_output, disc_generated_output)
-
-    generator_gradients = gen_tape.gradient(
-        gen_total_loss, generator.trainable_variables
-    )
-    discriminator_gradients = disc_tape.gradient(
-        disc_loss, discriminator.trainable_variables
-    )
-
-    generator_optimizer.apply_gradients(
-        zip(generator_gradients, generator.trainable_variables)
-    )
-    discriminator_optimizer.apply_gradients(
-        zip(discriminator_gradients, discriminator.trainable_variables)
-    )
-
-    with summary_writer.as_default():
-        tf.summary.scalar("gen_total_loss", gen_total_loss, step=epoch)
-        tf.summary.scalar("gen_gan_loss", gen_gan_loss, step=epoch)
-        tf.summary.scalar("gen_l1_loss", gen_l1_loss, step=epoch)
-        tf.summary.scalar("disc_loss", disc_loss, step=epoch)
-
-
-def fit(train_ds, epochs, test_ds):
-    for epoch in range(epochs):
-        start = time.time()
-
-        display.clear_output(wait=True)
-
-        for example_input, example_target in test_ds.take(1):
-            generate_images(generator, example_input, example_target)
-        print("Epoch: ", epoch)
-
-        # Train
-        for n, (input_image, target) in train_ds.enumerate():
-            print(".", end="")
-            if (n + 1) % 100 == 0:
-                print()
-            train_step(input_image, target, epoch)
-        print()
-
-        # saving (checkpoint) the model every 20 epochs
-        if (epoch + 1) % 1 == 0:
-            checkpoint.save(file_prefix=checkpoint_prefix)
-
-        print(
-            "Time taken for epoch {} is {} sec\n".format(epoch + 1, time.time() - start)
-        )
-    checkpoint.save(file_prefix=checkpoint_prefix)
-
-
-fit(train_dataset, EPOCHS, test_dataset)
-
-# only uncomment when restoring checkpoints
-# checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
